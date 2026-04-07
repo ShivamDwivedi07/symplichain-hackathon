@@ -1,0 +1,44 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches:
+      - staging
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Set up Node.js and build React frontend
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+      - run: cd frontend && npm install && npm run build
+
+      - name: Upload frontend to S3
+        run: aws s3 sync frontend/build/ s3://${{ secrets.S3_STAGING_BUCKET }} --delete
+
+      - name: SSH into EC2 and deploy Django
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.STAGING_EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ubuntu/symplichain
+            git pull origin staging
+            pip install -r requirements.txt
+            python manage.py migrate --no-input
+            sudo systemctl restart gunicorn
+            sudo systemctl restart celery
